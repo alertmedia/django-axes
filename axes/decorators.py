@@ -227,7 +227,7 @@ def watch_login(func):
             return lockout_response(request)
 
         # call the login function
-        response = func(request, *args, **kwargs)
+        response, status_code = func(request, *args, **kwargs)
 
         if func.__name__ == 'decorated_login':
             # if we're dealing with this function itself, don't bother checking
@@ -241,8 +241,7 @@ def watch_login(func):
             # see if the login was successful
             login_unsuccessful = (
                 response and
-                not response.has_header('location') and
-                response.status_code != 302
+                status_code != 200
             )
 
             user_agent = request.META.get('HTTP_USER_AGENT', '<unknown>')[:255]
@@ -259,11 +258,11 @@ def watch_login(func):
                         trusted=not login_unsuccessful,
                     )
             if check_request(request, login_unsuccessful):
-                return response
+                return response, status_code
 
             return lockout_response(request)
 
-        return response
+        return response, status_code
 
     return decorated_login
 
