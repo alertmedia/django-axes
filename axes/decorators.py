@@ -5,8 +5,6 @@ from hashlib import md5
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth import logout
-from django.http import HttpResponse
-from django.http import HttpResponseRedirect
 from django.shortcuts import render
 from django.utils import six
 from django.utils import timezone as datetime
@@ -118,7 +116,7 @@ def is_user_lockable(request):
     try:
         field = getattr(get_user_model(), 'USERNAME_FIELD', 'username')
         kwargs = {
-            field: request.POST.get(USERNAME_FORM_FIELD)
+            field: request.data.get(USERNAME_FORM_FIELD)
         }
         user = get_user_model().objects.get(**kwargs)
 
@@ -140,7 +138,7 @@ def _get_user_attempts(request):
     Otherwise return None.
     """
     ip = get_ip(request)
-    username = request.POST.get(USERNAME_FORM_FIELD, None)
+    username = request.data.get(USERNAME_FORM_FIELD, None)
 
     if AXES_ONLY_USER_FAILURES:
         attempts = AccessAttempt.objects.filter(username=username)
@@ -220,7 +218,7 @@ def watch_login(func):
         # also no need to keep accessing these:
         # ip = request.META.get('REMOTE_ADDR', '')
         # ua = request.META.get('HTTP_USER_AGENT', '<unknown>')
-        # username = request.POST.get(USERNAME_FORM_FIELD, None)
+        # username = request.data.get(USERNAME_FORM_FIELD, None)
 
         # if the request is currently under lockout, do not proceed to the
         # login function, go directly to lockout url, do not pass go, do not
@@ -255,7 +253,7 @@ def watch_login(func):
                     AccessLog.objects.create(
                         user_agent=user_agent,
                         ip_address=get_ip(request),
-                        username=request.POST.get(USERNAME_FORM_FIELD, None),
+                        username=request.data.get(USERNAME_FORM_FIELD, None),
                         http_accept=http_accept,
                         path_info=path_info,
                         trusted=not login_unsuccessful,
@@ -273,18 +271,14 @@ def watch_login(func):
 def lockout_response(request):
     context = {
         'failure_limit': FAILURE_LIMIT,
-        'username': request.POST.get(USERNAME_FORM_FIELD, '')
+        'username': request.data.get(USERNAME_FORM_FIELD, '')
     }
 
     if request.is_ajax():
         if COOLOFF_TIME:
             context.update({'cooloff_time': iso8601(COOLOFF_TIME)})
 
-        return HttpResponse(
-            json.dumps(context),
-            content_type='application/json',
-            status=403,
-        )
+        return json.dumps(context), 403
 
     elif LOCKOUT_TEMPLATE:
         if COOLOFF_TIME:
@@ -293,7 +287,7 @@ def lockout_response(request):
         return render(request, LOCKOUT_TEMPLATE, context, status=403)
 
     elif LOCKOUT_URL:
-        return HttpResponseRedirect(LOCKOUT_URL)
+        return LOCKOUT_URL, 302
 
     else:
         msg = 'Account locked: too many login attempts. {0}'
@@ -302,7 +296,7 @@ def lockout_response(request):
         else:
             msg = msg.format('Contact an admin to unlock your account.')
 
-        return HttpResponse(msg, status=403)
+        return msg, 403
 
 
 def is_already_locked(request):
@@ -335,7 +329,7 @@ def is_already_locked(request):
 
 def check_request(request, login_unsuccessful):
     ip_address = get_ip(request)
-    username = request.POST.get(USERNAME_FORM_FIELD, None)
+    username = request.data.get(USERNAME_FORM_FIELD, None)
     failures = 0
     attempts = get_user_attempts(request)
     cache_hash_key = get_cache_key(request)
@@ -431,7 +425,7 @@ def check_request(request, login_unsuccessful):
 def create_new_failure_records(request, failures):
     ip = get_ip(request)
     ua = request.META.get('HTTP_USER_AGENT', '<unknown>')[:255]
-    username = request.POST.get(USERNAME_FORM_FIELD, None)
+    username = request.data.get(USERNAME_FORM_FIELD, None)
 
     # Record failed attempt. Whether or not the IP address or user agent is
     # used in counting failures is handled elsewhere, so we just record
@@ -452,7 +446,7 @@ def create_new_failure_records(request, failures):
 def create_new_trusted_record(request):
     ip = get_ip(request)
     ua = request.META.get('HTTP_USER_AGENT', '<unknown>')[:255]
-    username = request.POST.get(USERNAME_FORM_FIELD, None)
+    username = request.data.get(USERNAME_FORM_FIELD, None)
 
     if not username:
         return False
